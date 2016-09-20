@@ -21,27 +21,60 @@ export class Client
     @sub = redis.createClient!
     @sub.psubscribe "raft:#{@address}:*"
     
-    seed = redis.createClient!
-    seed.subscribe "raftseed"
+    directory = redis.createClient!
+    directory.subscribe "raftdirectory"
 
     p.props do
       sub: (~> new p (resolve,reject) ~> @sub.once "psubscribe", ~> resolve @sub)()
       pub: (~> new p (resolve,reject) ~> @pub.once "connect", ~> resolve @pub)()
-      seed: (~> new p (resolve,reject) ~> seed.once "subscribe", ~> resolve seed)()
+      directory: (~> new p (resolve,reject) ~> directory.once "subscribe", ~> resolve directory)()
 
-    .then (pubSub) ~> new p (resolve,reject) ~> 
-      @pub.publish "raftseed", @address
-      @raft = new Raft pubSub <<< address: @address
+    .then (pubSub) ~> new p (resolve,reject) ~>
+      publish = ~> @pub.publish "raftdirectory", "add:" + @address
+      publish!
       
-      console.log 'wait on seed'
-      seed.on "message", (channel,address) ~>
-        @raft.join address
+      @raft = new Raft pubSub <<< do
+        address: @address
+        'heartbeat timeout': '1000 millisecond',
+        'heartbeat': '1000 millisecond',
+        'election min': '1500 millisecond',
+        'election max': '2 second'
+
+      nodes = {}
+                  
+      directory.on "message", (channel,msg) ~>
+        [action, address] = msg.split(':')
+        switch action
+          | "add" =>
+            if not nodes[address]?
+              nodes[address] = true
+              @raft.join address
+              publish!
+
+          | "rem" =>
+            @raft.leave address
         
-      seed.once "message", -> resolve!
-      
-      
+      directory.once "message", -> resolve!
+
+      @raft.on 'rpc', (packet, reply) ~> 
+        if packet.type == 'ping' then reply pong: true
+
+      @raft.once 'leader', ~> 
+
+        setInterval do
+          ~>
+            packet = @raft.packet 'ping', { ping: true }
+            @raft.message liferaft.FOLLOWER, packet, (err,data) ~> 
+              if err then each err, (val, address) ~> 
+                @pub.publish "raftdirectory", "rem:" + address
+                
+                
+          1000
+            
+        
+                                                
 Raft = liferaft.extend do
-  initialize: ({ pub, sub, address, parent }: opts, callback) ->
+  initialize: ({ pub, sub, address }: opts, callback) ->
     @queries = {}
     @pub = pub
     
@@ -77,17 +110,21 @@ Raft = liferaft.extend do
 
     switch reply?@@
       | Function =>
-        id = String new Date().getTime()
-        @parent.queries[id] = reply
-        setTimeout (~>  delete @parent.queries[id]), @beat
-
+        id = String new Date().getTime() + Math.random()
+        @self.queries[id] = reply
+        setTimeout (~>
+          
+          if cb = @self.queries[id]
+            delete @self.queries[id]
+            cb new Error "timeout"
+          ), @beat
         address += ":query:#{id}"
         
       | String =>
         address += ":reply:#{reply}"
 
 #    console.log "#{address} >>>", @address, packet
-    @parent.pub.publish address, JSON.stringify packet
+    @self.pub.publish address, JSON.stringify packet
 
 # raft = new Raft address
 # #  'election min': 2000
