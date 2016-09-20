@@ -1,0 +1,19 @@
+{
+  "name": "quorum",
+  "version": "1.0.0",
+  "description": "Clustering system",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "lesh <lesh@sysphere.org> (http://lesh.sysphere.org)",
+  "license": "ISC",
+  "dependencies": {
+    "bluebird": "^3.4.6",
+    "colors": "^1.1.2",
+    "liferaft": "^0.1.1",
+    "lodash": "^4.16.0",
+    "redis": "^2.6.2"
+  }
+}
