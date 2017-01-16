@@ -12,7 +12,7 @@
   "dependencies": {
     "bluebird": "^3.4.6",
     "colors": "^1.1.2",
-    "liferaft": "^0.1.1",
+    "liferaft": "git@github.com:leshy/liferaft.git",
     "lodash": "^4.16.0",
     "redis": "^2.6.2"
   }
