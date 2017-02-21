@@ -9,9 +9,10 @@ require! {
   events: { EventEmitter }
 }
 
-# need to initialize logger before sails
-# roles need to be able to suspend AND wake up, including master role
+# this is a shitty raft-over-redis implementation
+# need this quick, no time
 
+# need to initialize logger before sails
 export class Client extends EventEmitter
   (opts) ->
     @ <<< defaultsDeep opts, do
@@ -20,25 +21,22 @@ export class Client extends EventEmitter
   getNodes: -> new p (resolve,reject) ~>
     resolve map @raft.nodes, (.address)
   
-  message: (node, msg) -> new p (resolve,reject) ~> 
-    @raft.message node, @raft.packet('quorummsg', msg), (err, data) ->
-      if err then return reject err
-      resolve data
-  
   connect: (host="localhost") ->
+    @host = host
     @queries = {}
     
     @pub = redis.createClient host: host
     @sub = redis.createClient host: host
     
     @sub.psubscribe "raft:#{@address}:*"
+    
     directory = redis.createClient host: host
     directory.subscribe "raftdirectory"
 
     p.props do
-      sub: (~> new p (resolve,reject) ~> @sub.once "psubscribe", ~> resolve @sub)()
-      pub: (~> new p (resolve,reject) ~> @pub.once "connect", ~> resolve @pub)()
-      directory: (~> new p (resolve,reject) ~> directory.once "subscribe", ~> resolve directory)()
+      sub: (~> new p (resolve,reject) ~> @sub.once "psubscribe", ~> resolve @sub)!
+      pub: (~> new p (resolve,reject) ~> @pub.once "connect", ~> resolve @pub)!
+      directory: (~> new p (resolve,reject) ~> directory.once "subscribe", ~> resolve directory)!
 
     .then (pubSub) ~> new p (resolve,reject) ~>
       publishSelf = ~> @pub.publish "raftdirectory", "add:" + @address
@@ -83,6 +81,17 @@ export class Client extends EventEmitter
               if err then each err, (val, address) ~>
                 @pub.publish "raftdirectory", "rem:" + address
           1000
+
+  subscribe: (channel) -> new p (resolve,reject) ~>
+    opts = { cb: -> true }
+    channel = redis.createClient host: host
+    channel.psubscribe channel
+    channel.once 'psubscribe', ~> resolve ((cb) -> channel.on "message", cb)
+    
+  message: (node, msg) -> new p (resolve,reject) ~>
+    @raft.message node, @raft.packet('quorummsg', msg), (err, data) ->
+      if err then return reject err
+      resolve data
                                                 
 Raft = liferaft.extend do
   initialize: ({ pub, sub, address }: opts, callback) ->
